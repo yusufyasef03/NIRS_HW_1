@@ -1,61 +1,44 @@
-function [dHbR, dHbO, fig] = CalcNIRS(dataFile, SDS, tissueType, plotChannelIdx, extinctionCoefficientsFile, DPFperTissueFile, relDPFfile)
-    
-    % 1. Safety check: make sure the file actually exists before trying to open it
-    if ~exist(dataFile, 'file')
-        error('Data file does not exist.');
-    end
-    
-    % 2. Bring in the data (d = light intensity, t = timestamps)
-    data = load(dataFile);
-    d = data.d; t = data.t; 
-    
-    % Hardcoded coefficients (E) and pathlength factor (DPF) 
-    % Note: These should ideally be parsed from your .csv/txt files
-    E = [0.0955, 0.4323;   
-         0.2526, 0.1798];
-    invE = inv(E); % Invert the matrix to solve for concentration later
-    
-    DPF = 6; 
-    distance = SDS * DPF; % Total path light travels through the head
-    
-    % 3. Convert raw intensity to Optical Density (OD)
-    % We use the average of the signal as a baseline
-    baseline = mean(d, 1);
-    OD = log10(repmat(baseline, size(d,1), 1) ./ d); 
-    
-    [nTime, nChan] = size(OD);
-    half = nChan / 2; % NIRS usually has two wavelengths per location
-    
-    dHbO = zeros(nTime, half);
-    dHbR = zeros(nTime, half);
-    
-    % 4. Apply the Beer-Lambert Law 
-    % Loop through each source-detector pair to find HbO and HbR
-    for i = 1:half
-        % Pair up the two wavelengths for this channel
-        temp_OD = [OD(:, i), OD(:, i+half)]'; 
-        
-        % The "magic" step: turning light absorption into hemoglobin concentration
-        conc = invE * (temp_OD / distance);
-        dHbO(:, i) = conc(1, :)';
-        dHbR(:, i) = conc(2, :)';
-    end
-    
-    % 5. Create the plots for the requested channels
-    fig = figure;
-    if ~isempty(plotChannelIdx)
-        for j = 1:length(plotChannelIdx)
-            ch = plotChannelIdx(j);
-            subplot(length(plotChannelIdx), 1, j);
-            
-            % Red for Oxygenated, Blue for Deoxygenated
-            plot(t, dHbO(:, ch), 'r', 'LineWidth', 1.5); hold on;
-            plot(t, dHbR(:, ch), 'b', 'LineWidth', 1.5);
-            
-            title(['Concentration Changes - Channel ', num2str(ch)]);
-            xlabel('Time (s)'); ylabel('\Delta Conc');
-            legend('dHbO', 'dHbR');
-            grid on; axis tight;
-        end
-    end
-end
+clear all; close all; clc;
+
+% Basic setup based on the lab manual
+SDS = 3; 
+plotChannels = [1, 2]; % We only need to check the first two for the HW
+
+% Hardcoded filenames so we don't have to type them every time
+file1 = 'FN_031_V2_Postdose2_Nback.mat';
+file2 = 'FN_032_V1_Postdose1_Nback.mat';
+ext   = 'ExtinctionCoefficientsData.csv';
+dpf   = 'DPFperTissue.txt';
+rel   = 'RelativeDPFCoefficients.csv';
+
+% --- Task 1 & 2: Get the Hemoglobin Data ---
+fprintf('Starting Subject 1 Analysis...\n');
+[dHbR_1, dHbO_1, fig1] = CalcNIRS(file1, SDS, 'adult_head', plotChannels, ext, dpf, rel);
+
+fprintf('Starting Subject 2 Analysis...\n');
+[dHbR_2, dHbO_2, fig2] = CalcNIRS(file2, SDS, 'adult_head', plotChannels, ext, dpf, rel);
+
+% --- Task 3: Signal Quality (FFT) ---
+data = load(file1);
+Fs = 1 / mean(diff(data.t)); % Calculate how fast data was recorded
+L = length(dHbO_1(:,1));
+
+% Run the math to switch from time to frequency
+Y = fft(dHbO_1(:,1));
+P1 = abs(Y/L); 
+P1 = P1(1:floor(L/2)+1); 
+P1(2:end-1) = 2*P1(2:end-1);
+f = Fs*(0:floor(L/2))/L; % Frequency axis in Hz
+
+% Calculate SNR (Heartbeat vs Background noise)
+noise = mean(P1(f > 2.5)); % Pure noise area
+signal = max(P1(f > 0.8 & f < 2.0)); % Where the heart pulse lives
+SNR = signal / noise;
+
+fprintf('\n--- TASK 3 STATS ---\n');
+fprintf('Subject 1 SNR: %.4f\n', SNR);
+
+% Plot the FFT to see the heartbeat peak
+figure; plot(f, P1, 'r'); xlim([0 5]);
+title('Frequency Check (Look for Heartbeat)');
+xlabel('Hz'); ylabel('Amplitude');
