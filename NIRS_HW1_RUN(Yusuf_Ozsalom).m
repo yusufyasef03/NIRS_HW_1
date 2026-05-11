@@ -73,6 +73,21 @@ xlabel('Frequency (Hz)'); ylabel('|P1(f)|');
 xlim([0.5 2.5]); 
 grid on;
 
+heart_indices = find(f >= 0.5 & f <= 2.5);
+signal_strength = max(P1(heart_indices));
+
+% calculate noise
+noise_indices = find(f > 2.5);
+average_noise = mean(P1(noise_indices));
+
+% SNR 
+SNR = signal_strength / average_noise;
+
+% print SNR
+fprintf('Signal Strength (Heart Rate): %.4f\n', signal_strength);
+fprintf('Average Noise (>2.5Hz): %.4f\n', average_noise);
+fprintf('Calculated SNR: %.2f\n', SNR);
+
 % 7. FINAL RESULTS PLOT (Channel 1 and Channel 2)
 figure(3);
 
